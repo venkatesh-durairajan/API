@@ -5,6 +5,13 @@ import plotly.express as px
 
 st.title("📊 My Personal Portfolio Dashboard")
 
+# Cache price to avoid Yahoo rate limit
+@st.cache_data(ttl=3600)
+def get_price(ticker):
+    stock = yf.Ticker(ticker)
+    data = stock.history(period="1d")
+    return data["Close"].iloc[-1]
+
 # Your holdings (Edit anytime)
 portfolio = {
     "IOZ.AX": {"qty": 100, "buy_price": 28},
@@ -17,9 +24,9 @@ total_invested = 0
 total_current = 0
 
 for ticker, info in portfolio.items():
-    stock = yf.Ticker(ticker)
-    price = stock.history(period="1d")["Close"].iloc[-1]
-    
+
+    price = get_price(ticker)
+
     invested = info["qty"] * info["buy_price"]
     current = info["qty"] * price
     profit = current - invested
