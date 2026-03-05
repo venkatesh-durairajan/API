@@ -1,6 +1,5 @@
 streamlit
-pandas
-numpy
 yfinance
+pandas
 plotly
-matplotlib
+numpy
