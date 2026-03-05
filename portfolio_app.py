@@ -2,30 +2,33 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-import numpy as np
+import os
 
 st.set_page_config(page_title="My Portfolio", layout="wide")
 
-st.title("📈 My Personal Portfolio Dashboard")
+st.title("📈 My Portfolio Dashboard")
 
-# -------------------------
-# SESSION STORAGE
-# -------------------------
+DATA_FILE = "portfolio.csv"
 
-if "portfolio" not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(columns=[
-        "Ticker", "Shares", "Buy Price"
-    ])
+# --------------------------
+# LOAD DATA
+# --------------------------
 
-# -------------------------
-# GET STOCK PRICE
-# -------------------------
+if os.path.exists(DATA_FILE):
+    portfolio = pd.read_csv(DATA_FILE)
+else:
+    portfolio = pd.DataFrame(columns=["Ticker","Shares","Buy Price"])
+
+# --------------------------
+# GET PRICE
+# --------------------------
 
 @st.cache_data(ttl=300)
 def get_price(ticker):
 
     try:
         stock = yf.Ticker(ticker)
+
         price = stock.fast_info.get("lastPrice")
 
         if price:
@@ -42,22 +45,22 @@ def get_price(ticker):
         return None
 
 
-# -------------------------
+# --------------------------
 # ADD STOCK
-# -------------------------
+# --------------------------
 
 st.subheader("Add Stock")
 
-c1, c2, c3 = st.columns(3)
+c1,c2,c3 = st.columns(3)
 
 with c1:
-    ticker = st.text_input("Ticker")
+    ticker = st.text_input("Ticker (Example: NDQ.AX)")
 
 with c2:
-    shares = st.number_input("Shares", min_value=0.0)
+    shares = st.number_input("Shares",min_value=0.0)
 
 with c3:
-    buy_price = st.number_input("Buy Price", min_value=0.0)
+    buy = st.number_input("Buy Price",min_value=0.0)
 
 if st.button("Add Stock"):
 
@@ -66,24 +69,20 @@ if st.button("Add Stock"):
         new_row = pd.DataFrame({
             "Ticker":[ticker.upper()],
             "Shares":[shares],
-            "Buy Price":[buy_price]
+            "Buy Price":[buy]
         })
 
-        st.session_state.portfolio = pd.concat(
-            [st.session_state.portfolio,new_row],
-            ignore_index=True
-        )
+        portfolio = pd.concat([portfolio,new_row],ignore_index=True)
 
-        st.success("Stock added")
+        portfolio.to_csv(DATA_FILE,index=False)
 
+        st.success("Stock added successfully!")
 
-# -------------------------
-# PORTFOLIO
-# -------------------------
+# --------------------------
+# PORTFOLIO TABLE
+# --------------------------
 
 st.subheader("📊 Portfolio")
-
-portfolio = st.session_state.portfolio
 
 data = []
 
@@ -122,93 +121,28 @@ for i,row in portfolio.iterrows():
 
 df = pd.DataFrame(data)
 
-st.dataframe(df, width='stretch')
+st.dataframe(df,width='stretch')
 
-
-# -------------------------
+# --------------------------
 # SUMMARY
-# -------------------------
+# --------------------------
 
 st.subheader("💰 Summary")
 
-profit = total_value - total_invested
+profit = total_value-total_invested
 
 c1,c2,c3 = st.columns(3)
 
-c1.metric("Invested", f"${total_invested:,.2f}")
-c2.metric("Value", f"${total_value:,.2f}")
-c3.metric("Profit/Loss", f"${profit:,.2f}")
+c1.metric("Invested",f"${total_invested:,.2f}")
+c2.metric("Value",f"${total_value:,.2f}")
+c3.metric("Profit/Loss",f"${profit:,.2f}")
 
-
-# -------------------------
+# --------------------------
 # PIE CHART
-# -------------------------
+# --------------------------
 
 if len(df)>0:
 
-    fig = px.pie(
-        df,
-        names="Ticker",
-        values="Value",
-        title="Portfolio Allocation"
-    )
+    fig = px.pie(df,names="Ticker",values="Value",title="Portfolio Allocation")
 
-    st.plotly_chart(fig, width='stretch')
-
-
-# -------------------------
-# PORTFOLIO HISTORY
-# -------------------------
-
-st.subheader("📈 Portfolio Growth")
-
-if len(portfolio)>0:
-
-    history_values = []
-
-    for ticker in portfolio["Ticker"]:
-
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
-
-        history_values.append(hist["Close"])
-
-    combined = pd.concat(history_values, axis=1)
-
-    combined.columns = portfolio["Ticker"]
-
-    portfolio_history = combined.sum(axis=1)
-
-    chart_df = pd.DataFrame({
-        "Date":portfolio_history.index,
-        "Value":portfolio_history.values
-    })
-
-    fig2 = px.line(chart_df, x="Date", y="Value")
-
-    st.plotly_chart(fig2, width='stretch')
-
-
-# -------------------------
-# MARKET DASHBOARD
-# -------------------------
-
-st.subheader("🌍 Market Overview")
-
-markets = {
-    "S&P 500":"^GSPC",
-    "NASDAQ":"^IXIC",
-    "ASX200":"^AXJO",
-    "Bitcoin":"BTC-USD"
-}
-
-m1,m2,m3,m4 = st.columns(4)
-
-cols=[m1,m2,m3,m4]
-
-for (name,ticker),col in zip(markets.items(),cols):
-
-    price = get_price(ticker)
-
-    if price:
-        col.metric(name, round(price,2))
+    st.plotly_chart(fig,width='stretch')
