@@ -3,13 +3,23 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 
-st.title("📊 My Personal Portfolio Dashboard")
+st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
+
+st.title("📊 My Investment Portfolio")
+
+# -----------------------------
+# Portfolio Holdings
+# -----------------------------
 
 portfolio = {
     "IOZ.AX": {"qty": 100, "buy_price": 28},
     "NDQ.AX": {"qty": 50, "buy_price": 30},
     "DHHF.AX": {"qty": 70, "buy_price": 26},
 }
+
+# -----------------------------
+# Price Fetch Function
+# -----------------------------
 
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker):
@@ -36,6 +46,10 @@ def get_stock_data(ticker):
     except:
         return 0, 0, 0
 
+
+# -----------------------------
+# Build Portfolio Table
+# -----------------------------
 
 data = []
 total_invested = 0
@@ -64,29 +78,81 @@ for ticker, info in portfolio.items():
         "Profit/Loss": round(profit,2)
     })
 
-
 df = pd.DataFrame(data)
 
-st.subheader("📈 Portfolio Holdings")
+# -----------------------------
+# Display Portfolio Table
+# -----------------------------
+
+st.subheader("📈 Holdings")
+
 st.dataframe(df, use_container_width=True)
+
+# -----------------------------
+# Portfolio Summary Metrics
+# -----------------------------
 
 st.subheader("📊 Portfolio Summary")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Total Invested", f"${total_invested:,.2f}")
 col2.metric("Current Value", f"${total_current:,.2f}")
-col3.metric("Profit/Loss", f"${(total_current-total_invested):,.2f}")
 
-return_pct = ((total_current-total_invested)/total_invested)*100
-st.metric("Portfolio Return %", f"{return_pct:.2f}%")
+profit_total = total_current - total_invested
+col3.metric("Profit / Loss", f"${profit_total:,.2f}")
 
-st.subheader("📊 Portfolio Allocation")
+return_pct = (profit_total / total_invested) * 100
+col4.metric("Return %", f"{return_pct:.2f}%")
+
+# -----------------------------
+# Allocation Chart
+# -----------------------------
+
+st.subheader("🥧 Portfolio Allocation")
 
 fig = px.pie(
     df,
     names="Ticker",
-    values="Current Value"
+    values="Current Value",
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------
+# Portfolio Performance Chart
+# -----------------------------
+
+st.subheader("📉 Portfolio Trend (Last 3 Months)")
+
+@st.cache_data(ttl=3600)
+def get_portfolio_history():
+
+    combined = pd.DataFrame()
+
+    for ticker, info in portfolio.items():
+
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="3mo")
+
+        hist["Value"] = hist["Close"] * info["qty"]
+
+        if combined.empty:
+            combined = hist[["Value"]]
+        else:
+            combined["Value"] += hist["Value"]
+
+    return combined
+
+
+history = get_portfolio_history()
+
+fig2 = px.line(
+    history,
+    y="Value",
+    title="Portfolio Value Over Time"
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+st.success("✅ Portfolio dashboard loaded successfully!")
