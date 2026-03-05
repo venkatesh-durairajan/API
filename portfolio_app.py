@@ -1,179 +1,182 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import os
+import plotly.express as px
 
-st.set_page_config(page_title="Portfolio Tracker", layout="wide")
+st.set_page_config(page_title="My Portfolio", layout="wide")
 
-FILE = "portfolio.csv"
+st.title("📈 My Stock Portfolio")
 
-# -----------------------------------
-# Load Portfolio (Fix missing columns)
-# -----------------------------------
-def load_portfolio():
+# -----------------------------
+# SESSION STORAGE
+# -----------------------------
 
-    if os.path.exists(FILE):
-        df = pd.read_csv(FILE)
-
-        required_cols = ["Ticker", "Shares", "Buy Price"]
-
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = 0
-
-        df = df[required_cols]
-
-    else:
-        df = pd.DataFrame(columns=["Ticker","Shares","Buy Price"])
-
-    return df
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = pd.DataFrame(columns=[
+        "Ticker", "Shares", "Buy Price"
+    ])
 
 
-# -----------------------------------
-# Save Portfolio
-# -----------------------------------
-def save_portfolio(df):
-    df.to_csv(FILE,index=False)
+# -----------------------------
+# GET STOCK PRICE
+# -----------------------------
 
-
-# -----------------------------------
-# Get Stock Price
-# -----------------------------------
 @st.cache_data(ttl=300)
 def get_price(ticker):
 
     try:
         stock = yf.Ticker(ticker)
+
+        price = stock.fast_info.get("lastPrice")
+
+        if price:
+            return float(price)
+
         hist = stock.history(period="5d")
 
-        if hist.empty:
-            return None
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
 
-        return hist["Close"].iloc[-1]
+        return None
 
     except:
         return None
 
 
-# -----------------------------------
-# Load data
-# -----------------------------------
-portfolio = load_portfolio()
+# -----------------------------
+# ADD STOCK
+# -----------------------------
 
-st.title("📈 My Portfolio")
-
-# -----------------------------------
-# Add Stock
-# -----------------------------------
 st.subheader("Add Stock")
 
-col1,col2,col3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
-ticker = col1.text_input("Ticker (Example: AAPL or CBA.AX)")
-shares = col2.number_input("Shares",min_value=0.0)
-buy_price = col3.number_input("Buy Price",min_value=0.0)
+with col1:
+    ticker = st.text_input("Ticker (Example: AAPL or CBA.AX)")
 
-if st.button("Add"):
+with col2:
+    shares = st.number_input("Shares", min_value=0.0, step=1.0)
 
-    if ticker:
+with col3:
+    price = st.number_input("Buy Price", min_value=0.0, step=0.1)
+
+if st.button("Add Stock"):
+
+    if ticker != "":
 
         new_row = pd.DataFrame({
-            "Ticker":[ticker.upper()],
-            "Shares":[shares],
-            "Buy Price":[buy_price]
+            "Ticker": [ticker.upper()],
+            "Shares": [shares],
+            "Buy Price": [price]
         })
 
-        portfolio = pd.concat([portfolio,new_row],ignore_index=True)
+        st.session_state.portfolio = pd.concat(
+            [st.session_state.portfolio, new_row],
+            ignore_index=True
+        )
 
-        save_portfolio(portfolio)
-
-        st.success("Stock added")
-
-        st.rerun()
+        st.success("Stock added successfully")
 
 
-# -----------------------------------
-# Portfolio Table
-# -----------------------------------
+# -----------------------------
+# PORTFOLIO TABLE
+# -----------------------------
+
 st.subheader("Portfolio")
 
+portfolio = st.session_state.portfolio
+
+rows = []
+
+total_invested = 0
 total_value = 0
-total_cost = 0
 
-for i,row in portfolio.iterrows():
+for i, row in portfolio.iterrows():
 
-    ticker = row.get("Ticker","")
-    shares = float(row.get("Shares",0))
-    buy_price = float(row.get("Buy Price",0))
+    ticker = row["Ticker"]
+    shares = float(row["Shares"])
+    buy_price = float(row["Buy Price"])
 
     price = get_price(ticker)
 
-    c1,c2,c3,c4,c5,c6 = st.columns([2,2,2,2,1,1])
-
-    c1.write(f"**{ticker}**")
-    c2.write(f"Shares: {shares}")
-    c3.write(f"Buy: ${buy_price}")
+    invested = shares * buy_price
 
     if price:
-        c4.write(f"Price: ${round(price,2)}")
+        value = shares * price
     else:
-        c4.write("Price: N/A")
+        value = 0
 
-    if c5.button("Edit",key=f"edit{i}"):
-        st.session_state.edit_index = i
+    profit = value - invested
 
-    if c6.button("Delete",key=f"del{i}"):
+    total_invested += invested
+    total_value += value
 
-        portfolio = portfolio.drop(i).reset_index(drop=True)
+    rows.append({
+        "Ticker": ticker,
+        "Shares": shares,
+        "Buy Price": buy_price,
+        "Current Price": price,
+        "Invested": invested,
+        "Value": value,
+        "Profit": profit
+    })
 
-        save_portfolio(portfolio)
+    col1, col2, col3, col4, col5 = st.columns([2,2,2,1,1])
 
-        st.rerun()
+    with col1:
+        st.write(f"**{ticker}**")
 
-    if price:
-        total_value += price * shares
-        total_cost += buy_price * shares
+    with col2:
+        st.write(f"Shares: {shares}")
 
+    with col3:
+        st.write(f"Buy: ${buy_price}")
 
-# -----------------------------------
-# Edit Stock
-# -----------------------------------
-if "edit_index" in st.session_state:
+    with col4:
+        if st.button("Delete", key=f"del{i}"):
+            st.session_state.portfolio = portfolio.drop(i).reset_index(drop=True)
+            st.rerun()
 
-    idx = st.session_state.edit_index
-
-    st.subheader("Edit Stock")
-
-    row = portfolio.loc[idx]
-
-    new_shares = st.number_input("New Shares",value=float(row["Shares"]))
-    new_price = st.number_input("New Buy Price",value=float(row["Buy Price"]))
-
-    if st.button("Save"):
-
-        portfolio.at[idx,"Shares"] = new_shares
-        portfolio.at[idx,"Buy Price"] = new_price
-
-        save_portfolio(portfolio)
-
-        del st.session_state.edit_index
-
-        st.success("Updated")
-
-        st.rerun()
+    with col5:
+        if price:
+            st.write(f"Price: ${round(price,2)}")
+        else:
+            st.write("Price: N/A")
 
 
-# -----------------------------------
-# Summary
-# -----------------------------------
-if len(portfolio) > 0:
+# -----------------------------
+# SUMMARY
+# -----------------------------
 
-    st.subheader("Summary")
+st.subheader("Summary")
 
-    profit = total_value - total_cost
+profit_total = total_value - total_invested
 
-    col1,col2,col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-    col1.metric("Invested",f"${round(total_cost,2)}")
-    col2.metric("Value",f"${round(total_value,2)}")
-    col3.metric("Profit/Loss",f"${round(profit,2)}")
+with c1:
+    st.metric("Invested", f"${round(total_invested,2)}")
+
+with c2:
+    st.metric("Value", f"${round(total_value,2)}")
+
+with c3:
+    st.metric("Profit/Loss", f"${round(profit_total,2)}")
+
+
+# -----------------------------
+# PIE CHART
+# -----------------------------
+
+if len(rows) > 0:
+
+    df = pd.DataFrame(rows)
+
+    fig = px.pie(
+        df,
+        names="Ticker",
+        values="Value",
+        title="Portfolio Allocation"
+    )
+
+    st.plotly_chart(fig, width='stretch')
