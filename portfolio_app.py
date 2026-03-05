@@ -2,54 +2,49 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import json
+import os
 
-st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
+st.title("📊 My Personal Portfolio Dashboard")
 
-st.title("📊 My Investment Portfolio")
+FILE_NAME = "portfolio.json"
 
-# -----------------------------
-# Portfolio Holdings
-# -----------------------------
+# Load saved portfolio
+if os.path.exists(FILE_NAME):
+    with open(FILE_NAME, "r") as f:
+        portfolio = json.load(f)
+else:
+    portfolio = {}
 
-portfolio = {
-    "IOZ.AX": {"qty": 100, "buy_price": 28},
-    "NDQ.AX": {"qty": 50, "buy_price": 30},
-    "DHHF.AX": {"qty": 70, "buy_price": 26},
-}
+# Function to save portfolio
+def save_portfolio():
+    with open(FILE_NAME, "w") as f:
+        json.dump(portfolio, f)
 
-# -----------------------------
-# Price Fetch Function
-# -----------------------------
-
+# Get stock price (cached to avoid Yahoo limits)
 @st.cache_data(ttl=3600)
-def get_stock_data(ticker):
+def get_price(ticker):
+    stock = yf.Ticker(ticker)
+    data = stock.history(period="5d")
+    if len(data) == 0:
+        return 0
+    return data["Close"].iloc[-1]
 
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d")
+# Sidebar input to add stocks
+st.sidebar.header("➕ Add Stock / ETF")
 
-        if hist.empty:
-            return 0, 0, 0
+ticker = st.sidebar.text_input("Ticker (Example: NDQ.AX)")
+qty = st.sidebar.number_input("Quantity", min_value=1)
+buy_price = st.sidebar.number_input("Buy Price", min_value=0.0)
 
-        price = hist["Close"].iloc[-1]
-
-        if len(hist) > 1:
-            prev = hist["Close"].iloc[-2]
-            change = price - prev
-            change_pct = (change / prev) * 100
-        else:
-            change = 0
-            change_pct = 0
-
-        return price, change, change_pct
-
-    except:
-        return 0, 0, 0
-
-
-# -----------------------------
-# Build Portfolio Table
-# -----------------------------
+if st.sidebar.button("Add to Portfolio"):
+    if ticker:
+        portfolio[ticker.upper()] = {
+            "qty": qty,
+            "buy_price": buy_price
+        }
+        save_portfolio()
+        st.sidebar.success("Added successfully!")
 
 data = []
 total_invested = 0
@@ -57,7 +52,7 @@ total_current = 0
 
 for ticker, info in portfolio.items():
 
-    price, change, change_pct = get_stock_data(ticker)
+    price = get_price(ticker)
 
     invested = info["qty"] * info["buy_price"]
     current = info["qty"] * price
@@ -71,8 +66,6 @@ for ticker, info in portfolio.items():
         "Qty": info["qty"],
         "Buy Price": info["buy_price"],
         "Current Price": round(price,2),
-        "Daily Change": round(change,2),
-        "Daily %": round(change_pct,2),
         "Invested": round(invested,2),
         "Current Value": round(current,2),
         "Profit/Loss": round(profit,2)
@@ -80,79 +73,16 @@ for ticker, info in portfolio.items():
 
 df = pd.DataFrame(data)
 
-# -----------------------------
-# Display Portfolio Table
-# -----------------------------
-
-st.subheader("📈 Holdings")
-
-st.dataframe(df, use_container_width=True)
-
-# -----------------------------
-# Portfolio Summary Metrics
-# -----------------------------
+st.subheader("📈 Portfolio Holdings")
+st.dataframe(df)
 
 st.subheader("📊 Portfolio Summary")
 
-col1, col2, col3, col4 = st.columns(4)
+st.metric("Total Invested", f"${round(total_invested,2)}")
+st.metric("Current Value", f"${round(total_current,2)}")
+st.metric("Total Profit/Loss", f"${round(total_current-total_invested,2)}")
 
-col1.metric("Total Invested", f"${total_invested:,.2f}")
-col2.metric("Current Value", f"${total_current:,.2f}")
-
-profit_total = total_current - total_invested
-col3.metric("Profit / Loss", f"${profit_total:,.2f}")
-
-return_pct = (profit_total / total_invested) * 100
-col4.metric("Return %", f"{return_pct:.2f}%")
-
-# -----------------------------
-# Allocation Chart
-# -----------------------------
-
-st.subheader("🥧 Portfolio Allocation")
-
-fig = px.pie(
-    df,
-    names="Ticker",
-    values="Current Value",
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# -----------------------------
-# Portfolio Performance Chart
-# -----------------------------
-
-st.subheader("📉 Portfolio Trend (Last 3 Months)")
-
-@st.cache_data(ttl=3600)
-def get_portfolio_history():
-
-    combined = pd.DataFrame()
-
-    for ticker, info in portfolio.items():
-
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="3mo")
-
-        hist["Value"] = hist["Close"] * info["qty"]
-
-        if combined.empty:
-            combined = hist[["Value"]]
-        else:
-            combined["Value"] += hist["Value"]
-
-    return combined
-
-
-history = get_portfolio_history()
-
-fig2 = px.line(
-    history,
-    y="Value",
-    title="Portfolio Value Over Time"
-)
-
-st.plotly_chart(fig2, use_container_width=True)
-
-st.success("✅ Portfolio dashboard loaded successfully!")
+# Allocation chart
+if len(df) > 0:
+    fig = px.pie(df, names="Ticker", values="Current Value", title="Portfolio Allocation")
+    st.plotly_chart(fig)
