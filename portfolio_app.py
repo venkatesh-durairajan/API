@@ -1,119 +1,84 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-import plotly.express as px
 import os
 
-st.set_page_config(page_title="My Portfolio", layout="wide")
+FILE_NAME = "stocks.csv"
 
-st.title("📊 My Personal Portfolio Dashboard")
+# Load stocks
+def load_stocks():
+    if os.path.exists(FILE_NAME):
+        return pd.read_csv(FILE_NAME)
+    else:
+        return pd.DataFrame(columns=["Ticker", "Shares", "Price"])
 
-FILE = "portfolio.csv"
+# Save stocks
+def save_stocks(df):
+    df.to_csv(FILE_NAME, index=False)
 
-# ---------- Load Portfolio ----------
-if os.path.exists(FILE):
-    df = pd.read_csv(FILE)
+st.title("📈 My Stock Portfolio")
+
+df = load_stocks()
+
+st.subheader("Add Stock")
+
+with st.form("add_stock_form"):
+    ticker = st.text_input("Ticker")
+    shares = st.number_input("Shares", min_value=0.0)
+    price = st.number_input("Price", min_value=0.0)
+    submit = st.form_submit_button("Add Stock")
+
+    if submit:
+        new_row = pd.DataFrame({
+            "Ticker": [ticker],
+            "Shares": [shares],
+            "Price": [price]
+        })
+        df = pd.concat([df, new_row], ignore_index=True)
+        save_stocks(df)
+        st.success("Stock added successfully!")
+        st.experimental_rerun()
+
+st.divider()
+
+st.subheader("Edit / Delete Stocks")
+
+if len(df) > 0:
+
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("💾 Save Changes"):
+            save_stocks(edited_df)
+            st.success("Changes saved!")
+
+    with col2:
+        if st.button("🗑 Delete Selected Rows"):
+            selected_rows = st.multiselect(
+                "Select rows to delete",
+                options=df.index,
+                format_func=lambda x: df.loc[x, "Ticker"]
+            )
+            df = df.drop(selected_rows)
+            save_stocks(df)
+            st.experimental_rerun()
+
 else:
-    df = pd.DataFrame(columns=["Ticker","Qty","Buy Price"])
+    st.info("No stocks added yet.")
 
-# ---------- Function to Get Price ----------
-@st.cache_data(ttl=3600)
-def get_price(ticker):
-    try:
-        data = yf.Ticker(ticker).history(period="2d")
-        return data["Close"].iloc[-1]
-    except:
-        return None
+st.divider()
 
+st.subheader("Portfolio Summary")
 
-# ---------- Add Stock ----------
-st.sidebar.header("➕ Add Stock")
+if len(df) > 0:
+    df["Value"] = df["Shares"] * df["Price"]
+    total = df["Value"].sum()
 
-ticker = st.sidebar.text_input("Ticker (Example: NDQ.AX)")
-qty = st.sidebar.number_input("Quantity", min_value=1)
-buy_price = st.sidebar.number_input("Buy Price", min_value=0.0)
+    st.dataframe(df)
 
-if st.sidebar.button("Add Stock"):
-
-    new_row = pd.DataFrame([[ticker.upper(), qty, buy_price]],
-                           columns=["Ticker","Qty","Buy Price"])
-
-    df = pd.concat([df, new_row], ignore_index=True)
-
-    df.to_csv(FILE, index=False)
-
-    st.sidebar.success("Stock Added!")
-
-# ---------- Delete Stock ----------
-st.sidebar.header("❌ Delete Stock")
-
-if not df.empty:
-    delete_ticker = st.sidebar.selectbox("Select stock", df["Ticker"])
-
-    if st.sidebar.button("Delete"):
-
-        df = df[df["Ticker"] != delete_ticker]
-
-        df.to_csv(FILE, index=False)
-
-        st.sidebar.success("Deleted!")
-
-
-# ---------- Portfolio Calculation ----------
-data = []
-
-total_invested = 0
-total_current = 0
-
-for index,row in df.iterrows():
-
-    ticker = row["Ticker"]
-    qty = row["Qty"]
-    buy_price = row["Buy Price"]
-
-    price = get_price(ticker)
-
-    if price is None:
-        continue
-
-    invested = qty * buy_price
-    current = qty * price
-    profit = current - invested
-
-    total_invested += invested
-    total_current += current
-
-    data.append({
-        "Ticker": ticker,
-        "Qty": qty,
-        "Buy Price": buy_price,
-        "Current Price": round(price,2),
-        "Invested": round(invested,2),
-        "Current Value": round(current,2),
-        "Profit/Loss": round(profit,2)
-    })
-
-portfolio_df = pd.DataFrame(data)
-
-# ---------- Show Portfolio ----------
-st.subheader("📈 Portfolio Holdings")
-st.dataframe(portfolio_df, use_container_width=True)
-
-# ---------- Summary ----------
-st.subheader("📊 Portfolio Summary")
-
-col1,col2,col3 = st.columns(3)
-
-col1.metric("Total Invested", f"${total_invested:,.2f}")
-col2.metric("Current Value", f"${total_current:,.2f}")
-col3.metric("Profit/Loss", f"${total_current-total_invested:,.2f}")
-
-# ---------- Allocation Chart ----------
-if not portfolio_df.empty:
-
-    fig = px.pie(portfolio_df,
-                 names="Ticker",
-                 values="Current Value",
-                 title="Portfolio Allocation")
-
-    st.plotly_chart(fig, use_container_width=True)
+    st.metric("Total Portfolio Value", f"${total:,.2f}")
