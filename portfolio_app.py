@@ -1,61 +1,83 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
 import plotly.express as px
-import json
 import os
+
+st.set_page_config(page_title="My Portfolio", layout="wide")
 
 st.title("📊 My Personal Portfolio Dashboard")
 
-FILE_NAME = "portfolio.json"
+FILE = "portfolio.csv"
 
-# Load saved portfolio
-if os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "r") as f:
-        portfolio = json.load(f)
+# ---------- Load Portfolio ----------
+if os.path.exists(FILE):
+    df = pd.read_csv(FILE)
 else:
-    portfolio = {}
+    df = pd.DataFrame(columns=["Ticker","Qty","Buy Price"])
 
-# Function to save portfolio
-def save_portfolio():
-    with open(FILE_NAME, "w") as f:
-        json.dump(portfolio, f)
-
-# Get stock price (cached to avoid Yahoo limits)
+# ---------- Function to Get Price ----------
 @st.cache_data(ttl=3600)
 def get_price(ticker):
-    stock = yf.Ticker(ticker)
-    data = stock.history(period="5d")
-    if len(data) == 0:
-        return 0
-    return data["Close"].iloc[-1]
+    try:
+        data = yf.Ticker(ticker).history(period="2d")
+        return data["Close"].iloc[-1]
+    except:
+        return None
 
-# Sidebar input to add stocks
-st.sidebar.header("➕ Add Stock / ETF")
+
+# ---------- Add Stock ----------
+st.sidebar.header("➕ Add Stock")
 
 ticker = st.sidebar.text_input("Ticker (Example: NDQ.AX)")
 qty = st.sidebar.number_input("Quantity", min_value=1)
 buy_price = st.sidebar.number_input("Buy Price", min_value=0.0)
 
-if st.sidebar.button("Add to Portfolio"):
-    if ticker:
-        portfolio[ticker.upper()] = {
-            "qty": qty,
-            "buy_price": buy_price
-        }
-        save_portfolio()
-        st.sidebar.success("Added successfully!")
+if st.sidebar.button("Add Stock"):
 
+    new_row = pd.DataFrame([[ticker.upper(), qty, buy_price]],
+                           columns=["Ticker","Qty","Buy Price"])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+
+    df.to_csv(FILE, index=False)
+
+    st.sidebar.success("Stock Added!")
+
+# ---------- Delete Stock ----------
+st.sidebar.header("❌ Delete Stock")
+
+if not df.empty:
+    delete_ticker = st.sidebar.selectbox("Select stock", df["Ticker"])
+
+    if st.sidebar.button("Delete"):
+
+        df = df[df["Ticker"] != delete_ticker]
+
+        df.to_csv(FILE, index=False)
+
+        st.sidebar.success("Deleted!")
+
+
+# ---------- Portfolio Calculation ----------
 data = []
+
 total_invested = 0
 total_current = 0
 
-for ticker, info in portfolio.items():
+for index,row in df.iterrows():
+
+    ticker = row["Ticker"]
+    qty = row["Qty"]
+    buy_price = row["Buy Price"]
 
     price = get_price(ticker)
 
-    invested = info["qty"] * info["buy_price"]
-    current = info["qty"] * price
+    if price is None:
+        continue
+
+    invested = qty * buy_price
+    current = qty * price
     profit = current - invested
 
     total_invested += invested
@@ -63,26 +85,35 @@ for ticker, info in portfolio.items():
 
     data.append({
         "Ticker": ticker,
-        "Qty": info["qty"],
-        "Buy Price": info["buy_price"],
+        "Qty": qty,
+        "Buy Price": buy_price,
         "Current Price": round(price,2),
         "Invested": round(invested,2),
         "Current Value": round(current,2),
         "Profit/Loss": round(profit,2)
     })
 
-df = pd.DataFrame(data)
+portfolio_df = pd.DataFrame(data)
 
+# ---------- Show Portfolio ----------
 st.subheader("📈 Portfolio Holdings")
-st.dataframe(df)
+st.dataframe(portfolio_df, use_container_width=True)
 
+# ---------- Summary ----------
 st.subheader("📊 Portfolio Summary")
 
-st.metric("Total Invested", f"${round(total_invested,2)}")
-st.metric("Current Value", f"${round(total_current,2)}")
-st.metric("Total Profit/Loss", f"${round(total_current-total_invested,2)}")
+col1,col2,col3 = st.columns(3)
 
-# Allocation chart
-if len(df) > 0:
-    fig = px.pie(df, names="Ticker", values="Current Value", title="Portfolio Allocation")
-    st.plotly_chart(fig)
+col1.metric("Total Invested", f"${total_invested:,.2f}")
+col2.metric("Current Value", f"${total_current:,.2f}")
+col3.metric("Profit/Loss", f"${total_current-total_invested:,.2f}")
+
+# ---------- Allocation Chart ----------
+if not portfolio_df.empty:
+
+    fig = px.pie(portfolio_df,
+                 names="Ticker",
+                 values="Current Value",
+                 title="Portfolio Allocation")
+
+    st.plotly_chart(fig, use_container_width=True)
